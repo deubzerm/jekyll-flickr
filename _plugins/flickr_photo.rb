@@ -23,6 +23,9 @@
 # Author: Chris Nunciato
 # Source: http://github.com/cnunciato/jekyll-flickr
 
+# imgae Sizes:
+# https://www.flickr.com/services/api/flickr.photos.getSizes.html
+
 require 'nokogiri'
 require 'typhoeus'
 require 'shellwords'
@@ -38,11 +41,13 @@ module Jekyll
     @@err_uri_link = "http://flickr.com"
     @@err_width = "400"
     @@err_height = "300"
+    @@licenses = Hash.new
+    @@license_text = ""
 
     def initialize(tag_name, markup, tokens)
       super
       params = Shellwords.shellwords markup
-      @photo = { :id => params[0], :size => params[1] || "Medium", :sizes => {}, :title => "", :caption => "", :url => "", :exif => {} }
+      @photo = { :id => params[0], :size => params[1] || "Medium", :sizes => {}, :title => "", :caption => "", :url => "", :exif => {}, :license => "" }
     end
 
     def render(context)
@@ -50,13 +55,30 @@ module Jekyll
         @photo.merge!(@@cached[photo_key] || get_photo)
 
         selected_size = @photo[:sizes][@photo[:size]]
-        "<a class=\"thumbnail\" href=\"#{@photo[:url]}\"><img src=\"#{selected_size[:source]}\" title=\"#{@photo[:title]}\"></a>"
+
+        lic_text = match_license(@photo[:license],@@licenses)
+        
+        #href=\"#{@photo[:url]}\" no link on image
+        html="<div class=\"video-container\">
+                <a class=\"fimage\" target=\"_blank\" href=\"#{@photo[:url]}\" >
+                    <img src=\"#{selected_size[:source]}\" title=\"#{@photo[:title]}\">
+                </a>
+              <div class=\"f-license\">
+              <a target=\"_blank\" href=\"#{lic_text[1]}\">#{lic_text[0]}</a>
+              </div>
+              </div>"
+
     end
 
     def get_photo
         hydra = Typhoeus::Hydra.new
 
-        urls_req = Typhoeus::Request.new("https://api.flickr.com/services/rest/?method=flickr.photos.getSizes&api_key=#{@api_key}&photo_id=#{@photo[:id]}")
+        urls_req = Typhoeus::Request.new(
+            "https://api.flickr.com/services/rest/",
+            params: { method: "flickr.photos.getSizes",
+                      api_key: "#{@api_key}",
+                      photo_id: "#{@photo[:id]}"
+                    })
         urls_req.on_complete do |resp|
             parsed = Nokogiri::XML(resp.body)
             parsed.css("rsp").each do |status|
@@ -81,7 +103,12 @@ module Jekyll
         end
       end
 
-      info_req = Typhoeus::Request.new("https://api.flickr.com/services/rest/?method=flickr.photos.getInfo&api_key=#{@api_key}&photo_id=#{@photo[:id]}")
+      info_req = Typhoeus::Request.new(
+          "https://api.flickr.com/services/rest/",
+          params: { method: "flickr.photos.getInfo",
+                    api_key: "#{@api_key}",
+                    photo_id: "#{@photo[:id]}"
+                  })
       info_req.on_complete do |resp|
           parsed = Nokogiri::XML(resp.body)
           parsed.css("rsp").each do |status|
@@ -89,15 +116,22 @@ module Jekyll
               @photo[:title] = parsed.css("title").inner_text
               @photo[:caption] = parsed.css("description").inner_text
               @photo[:url] = parsed.css("urls url").inner_text
+              @photo[:license] = parsed.at("photo")[:license]
             else
               @photo[:title] = @@err_text
               @photo[:caption] = @err_text
               @photo[:url] = @@err_uri_link
+              @photo[:license] = "no"
             end
         end
       end
 
-        exif_req = Typhoeus::Request.new("https://api.flickr.com/services/rest/?method=flickr.photos.getExif&api_key=#{@api_key}&photo_id=#{@photo[:id]}")
+        exif_req = Typhoeus::Request.new(
+            "https://api.flickr.com/services/rest/",
+            params: { method: "flickr.photos.getExif",
+                      api_key: "#{@api_key}",
+                      photo_id: "#{@photo[:id]}"
+                    })
         exif_req.on_complete do |resp|
             parsed = Nokogiri::XML(resp.body)
             parsed.css("exif").each do |el|
@@ -105,9 +139,26 @@ module Jekyll
             end
         end
 
+        #requests available licenses
+        licenses_req = Typhoeus::Request.new(
+            "https://api.flickr.com/services/rest/",
+            params: { method: "flickr.photos.licenses.getInfo",
+                      api_key: "#{@api_key}"
+                    })
+        licenses_req.on_complete do |resp|
+            parsed = Nokogiri::XML(resp.body)
+            parsed.css("license").each do |license|
+                @@licenses[license[:'id']] = ["#{license[:name]}","#{license[:url]}"]
+            end
+            match_license(9,@@licenses)
+
+        end
+
+
         hydra.queue(urls_req)
         hydra.queue(info_req)
         hydra.queue(exif_req)
+        hydra.queue(licenses_req)
         hydra.run
 
         @@cached[photo_key] = @photo
@@ -117,8 +168,17 @@ module Jekyll
         "#{@photo[:id]}"
     end
 
+    def match_license(lic_id, hashmap)
+        return hashmap["#{lic_id}"]
+    end
+
   end
 
 end
 
 Liquid::Template.register_tag('flickr_photo', Jekyll::FlickrPhotoTag)
+
+Jekyll::Hooks.register :posts, :post_render do |post|
+    puts post
+  # code to call after Jekyll renders a post
+end
