@@ -60,11 +60,11 @@ module Jekyll
         
         #href=\"#{@photo[:url]}\" no link on image
         html="<div class=\"video-container\">
-                <a class=\"fimage\" target=\"_blank\" href=\"#{@photo[:url]}\" >
+                <a class=\"fimage\" id=\"fil\" href=\"#{@photo[:url]}\" >
                     <img src=\"#{selected_size[:source]}\" title=\"#{@photo[:title]}\">
                 </a>
               <div class=\"f-license\">
-              <a target=\"_blank\" href=\"#{lic_text[1]}\">#{lic_text[0]}</a>
+              <a target=\"_blank\"  href=\"#{lic_text[1]}\">#{lic_text[0]}</a>
               </div>
               </div>"
 
@@ -176,9 +176,29 @@ module Jekyll
 
 end
 
-Liquid::Template.register_tag('flickr_photo', Jekyll::FlickrPhotoTag)
 
-Jekyll::Hooks.register :posts, :post_render do |post|
-    puts post
+Liquid::Template.register_tag('flickr_photo', Jekyll::FlickrPhotoTag)
+#spielerei
+=begin
+Jekyll::Hooks.register :pages, :post_render do |post|
+    #post = "Hello"
+    
+    if post.name == "index.html" then
+        parsed = Nokogiri::XML(post.output)
+        #puts post.content.inspect
+        parsed.xpath("//a[@id=\"fil\"]").each do |el|
+            el["href"] = ""
+            el["target"] = ""
+            puts el
+        end
+        post.output = parsed
+        puts post.output
+        #post.output = parsed
+    else
+
+    end
+    
   # code to call after Jekyll renders a post
 end
+=end
+
